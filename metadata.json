@@ -1,0 +1,7 @@
+{
+  "name": "UniPath Pakistan",
+  "description": "University discovery, admission eligibility, cost estimation, and scholarship guidance for Pakistani students.",
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

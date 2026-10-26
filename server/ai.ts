@@ -33,11 +33,26 @@ function systemPrompt() {
   ].join(' ');
 }
 
-async function callGemini(question: string, env: EnvMap) {
-  const apiKey = env.GOOGLE_GEMINI_API_KEY;
-  if (!apiKey) return { ok: false as const, status: 503, error: 'Gemini is not configured on the server.' };
+function isRealGeminiApiKey(key?: string): key is string {
+  if (!key) return false;
+  const trimmed = key.trim();
+  return trimmed.startsWith('AIza');
+}
 
-  const model = env.GEMINI_MODEL || 'gemini-2.0-flash';
+function isRealNebiusApiKey(key?: string): key is string {
+  if (!key) return false;
+  const trimmed = key.trim();
+  if (!trimmed || trimmed.startsWith('your_') || trimmed.startsWith('<') || trimmed.includes('placeholder') || trimmed.startsWith('nvapi-')) {
+    return false;
+  }
+  return true;
+}
+
+async function callGemini(question: string, env: EnvMap) {
+  const apiKey = env.GEMINI_API_KEY || env.GOOGLE_GEMINI_API_KEY || process.env.GEMINI_API_KEY || process.env.GOOGLE_GEMINI_API_KEY;
+  if (!isRealGeminiApiKey(apiKey)) return { ok: false as const, status: 503, error: 'Gemini is not configured on the server.' };
+
+  const model = env.GEMINI_MODEL || process.env.GEMINI_MODEL || 'gemini-2.5-flash';
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`,
     {
@@ -51,7 +66,9 @@ async function callGemini(question: string, env: EnvMap) {
   );
 
   if (!response.ok) {
-    return { ok: false as const, status: 502, error: 'Gemini request failed.' };
+    const errText = await response.text();
+    console.error('[Gemini API Error]', response.status, errText);
+    return { ok: false as const, status: 502, error: `Gemini request failed: ${response.status} ${errText}` };
   }
 
   const data = (await response.json()) as {
@@ -71,11 +88,11 @@ async function callGemini(question: string, env: EnvMap) {
 }
 
 async function callNebius(question: string, env: EnvMap) {
-  const apiKey = env.NEBIUS_API_KEY;
-  if (!apiKey) return { ok: false as const, status: 503, error: 'Nebius is not configured on the server.' };
+  const apiKey = env.NEBIUS_API_KEY || process.env.NEBIUS_API_KEY;
+  if (!isRealNebiusApiKey(apiKey)) return { ok: false as const, status: 503, error: 'Nebius is not configured on the server.' };
 
-  const endpoint = (env.NEBIUS_ENDPOINT || 'https://api.tokenfactory.nebius.com/v1').replace(/\/$/, '');
-  const model = env.NEBIUS_MODEL || 'meta-llama/Meta-Llama-3.1-8B-Instruct';
+  const endpoint = (env.NEBIUS_ENDPOINT || process.env.NEBIUS_ENDPOINT || 'https://api.tokenfactory.nebius.com/v1').replace(/\/$/, '');
+  const model = env.NEBIUS_MODEL || process.env.NEBIUS_MODEL || 'meta-llama/Meta-Llama-3.1-8B-Instruct';
 
   const response = await fetch(`${endpoint}/chat/completions`, {
     method: 'POST',
@@ -117,9 +134,11 @@ export async function handleAiRequest(req: IncomingMessage, res: ServerResponse,
   if (!url.startsWith('/api/')) return false;
 
   if (req.method === 'GET' && url === '/api/ai/status') {
+    const geminiKey = env.GEMINI_API_KEY || env.GOOGLE_GEMINI_API_KEY || process.env.GEMINI_API_KEY || process.env.GOOGLE_GEMINI_API_KEY;
+    const nebiusKey = env.NEBIUS_API_KEY || process.env.NEBIUS_API_KEY;
     sendJson(res, 200, {
-      gemini: Boolean(env.GOOGLE_GEMINI_API_KEY),
-      nebius: Boolean(env.NEBIUS_API_KEY),
+      gemini: isRealGeminiApiKey(geminiKey),
+      nebius: isRealNebiusApiKey(nebiusKey),
     });
     return true;
   }
